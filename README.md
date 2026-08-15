@@ -1,6 +1,4 @@
-import os
-
-readme_content = """# MySQL Master-Slave Replication on Rocky Linux 8
+# MySQL Master-Slave Replication on Rocky Linux 8
 
 A complete, automated solution for configuring MySQL 8 (GTID-based) Master-Slave (Primary-Replica) replication on Rocky Linux 8 using shell scripts.
 
