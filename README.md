@@ -33,3 +33,17 @@ A complete, automated solution for configuring MySQL 8 (GTID-based) Master-Slave
 ```bash
 chmod +x setup_master.sh
 sudo ./setup_master.sh
+
+Note the Master IP Address printed in the success output.
+```
+
+### Step 2: Configure the Replica (Slave) Node
+
+1. Copy setup_replica.sh to your Replica server.
+2. Run the script as root, passing the Master IP Address as an argument:
+
+```bash
+
+chmod +x setup_replica.sh
+sudo ./setup_replica.sh <MASTER_IP>
+```
