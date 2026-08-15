@@ -1,0 +1,164 @@
+heat_template_version: 2021-04-16
+
+description: >
+  Tested OpenStack Heat Template for MySQL Primary-Replica (Master-Slave) 
+  Replication deployment on Rocky Linux 8 using GTID.
+
+parameters:
+  image:
+    type: string
+    description: Name or ID of Rocky Linux 8 image
+    default: "Rocky-8"
+  flavor:
+    type: string
+    description: Compute flavor for DB nodes
+    default: "m1.medium"
+  key_name:
+    type: string
+    description: SSH Keypair name
+  private_network:
+    type: string
+    description: Private network for MySQL communication
+  db_root_password:
+    type: string
+    description: Root password for MySQL
+    hidden: true
+    default: "StrongRootPass123!"
+  db_repl_password:
+    type: string
+    description: Password for replication user
+    hidden: true
+    default: "StrongReplPass123!"
+
+resources:
+  # Master Security Group
+  master_secgroup:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: mysql-master-secgroup
+      rules:
+        - protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+          remote_ip_prefix: 0.0.0.0/0
+        - protocol: tcp
+          port_range_min: 3306
+          port_range_max: 3306
+          remote_ip_prefix: 0.0.0.0/0
+
+  # Master Instance
+  mysql_master:
+    type: OS::Nova::Server
+    properties:
+      name: mysql-master
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - network: { get_param: private_network }
+      security_groups:
+        - { get_resource: master_secgroup }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -ex
+
+            # Install MySQL Server
+            dnf install -y mysql-server
+            systemctl enable --now mysqld
+
+            # Configure MySQL for Master (GTID Replication)
+            cat <<EOF > /etc/my.cnf.d/replication.cnf
+            [mysqld]
+            server-id = 1
+            log_bin = mysql-bin
+            binlog_format = ROW
+            gtid_mode = ON
+            enforce_gtid_consistency = ON
+            log_slave_updates = ON
+            EOF
+
+            systemctl restart mysqld
+
+            # Configure Users and Security
+            mysql -u root <<EOSQL
+            ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PW';
+            CREATE USER 'repl'@'%' IDENTIFIED BY '$DB_REPL_PW';
+            GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%';
+            FLUSH PRIVILEGES;
+            EOSQL
+          params:
+            $DB_ROOT_PW: { get_param: db_root_password }
+            $DB_REPL_PW: { get_param: db_repl_password }
+
+  # Replica Instance
+  mysql_replica:
+    type: OS::Nova::Server
+    depends_on: mysql_master
+    properties:
+      name: mysql-replica
+      image: { get_param: image }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - network: { get_param: private_network }
+      security_groups:
+        - { get_resource: master_secgroup }
+      user_data_format: RAW
+      user_data:
+        str_replace:
+          template: |
+            #!/bin/bash
+            set -ex
+
+            MASTER_IP="$MASTER_IP"
+
+            # Install MySQL Server
+            dnf install -y mysql-server
+            systemctl enable --now mysqld
+
+            # Configure MySQL for Replica (GTID Replication)
+            cat <<EOF > /etc/my.cnf.d/replication.cnf
+            [mysqld]
+            server-id = 2
+            log_bin = mysql-bin
+            binlog_format = ROW
+            gtid_mode = ON
+            enforce_gtid_consistency = ON
+            read_only = ON
+            EOF
+
+            systemctl restart mysqld
+
+            # Secure root user
+            mysql -u root <<EOSQL
+            ALTER USER 'root'@'localhost' IDENTIFIED BY '$DB_ROOT_PW';
+            EOSQL
+
+            # Wait for Master connectivity and start replication
+            until mysqladmin ping -h "$MASTER_IP" --silent; do
+                sleep 5
+            done
+
+            mysql -u root -p'$DB_ROOT_PW' <<EOSQL
+            CHANGE MASTER TO
+              MASTER_HOST='$MASTER_IP',
+              MASTER_USER='repl',
+              MASTER_PASSWORD='$DB_REPL_PW',
+              MASTER_AUTO_POSITION=1;
+            START SLAVE;
+            EOSQL
+          params:
+            $MASTER_IP: { get_attr: [mysql_master, first_address] }
+            $DB_ROOT_PW: { get_param: db_root_password }
+            $DB_REPL_PW: { get_param: db_repl_password }
+
+outputs:
+  master_ip:
+    description: Private IP address of the MySQL Master node
+    value: { get_attr: [mysql_master, first_address] }
+  replica_ip:
+    description: Private IP address of the MySQL Replica node
+    value: { get_attr: [mysql_replica, first_address] }
