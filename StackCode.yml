@@ -7,8 +7,8 @@ description: >
 parameters:
   image:
     type: string
-    description: Name or ID of Rocky Linux 8 image
-    default: "Rocky-8"
+    description: Name or ID of AlmaLinux  8 image
+    default: "AlmaLinux 8"
   flavor:
     type: string
     description: Compute flavor for DB nodes
