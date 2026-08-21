@@ -12,13 +12,15 @@ parameters:
   flavor:
     type: string
     description: Compute flavor for DB nodes
-    default: "m1.medium"
+    default: "gp.0.2.4"
   key_name:
     type: string
     description: SSH Keypair name
+    default: "Inde_lon5"
   private_network:
     type: string
     description: Private network for MySQL communication
+    default: "IshanTest"
   db_root_password:
     type: string
     description: Root password for MySQL
